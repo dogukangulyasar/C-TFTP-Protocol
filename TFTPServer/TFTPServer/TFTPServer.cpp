@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <fstream>
 #include <string>
+#include <sstream>
+
 
 // TFTP Port: 69
 #define PORT 69
@@ -15,43 +17,25 @@
 #define TIME_OUT 5
 #define MAX_PACKETS 99
 
-// converts block number to length-2 string
-void s_to_i(char* f, int n) {
-    if (n == 0) {
-        f[0] = '0', f[1] = '0', f[2] = '\0';
-    }
-    else if (n % 10 > 0 && n / 10 == 0) {
-        char c = n + '0';
-        f[0] = '0', f[1] = c, f[2] = '\0';
-    }
-    else if (n % 100 > 0 && n / 100 == 0) {
-        char c2 = (n % 10) + '0';
-        char c1 = (n / 10) + '0';
-        f[0] = c1, f[1] = c2, f[2] = '\0';
-    }
-    else {
-        f[0] = '9', f[1] = '9', f[2] = '\0';
-    }
-}
 
-char* GenerateAcknowledgePacket(const char* block) {
-    char* packet;
-    packet = (char*)malloc(2+strlen(block));
-	memset(packet, 0, sizeof packet);
-	strcat(packet, "04");//opcode
-	strcat(packet, block);
+std::string GenerateAcknowledgePacket(const char* block) {
+    std::string packet = "04" + std::string(block);
+    //char* packet;
+    //packet = (char*)malloc(2+strlen(block));
+	//memset(packet, 0, sizeof packet);
+	//strcat(packet, "04");//opcode
+	//strcat(packet, block);
     return packet;
 }
 
-std::string GenerateDataPacket(int block, char* data) {
+std::string GenerateDataPacket(int block, std::string data) {
     std::string packet;
     if (block <= 9) {
-        packet = "030" + std::to_string(block) + std::string(data);
+        packet = "030" + std::to_string(block) + data;
     } else {
-        packet = "03" + std::to_string(block) + std::string(data);
+        packet = "03" + std::to_string(block) + data;
     }
-     
- //   char *packet;
+    //char *packet;
 	//char temp[3];
 	//s_to_i(temp, block);
 	//packet = (char*)malloc(4+strlen(data));
@@ -74,21 +58,21 @@ std::string GenerateErrorMessage(const char* errcode, const char* errmsg) {
     return packet;
 }
 
-int CheckTimeout(int mainSocket, char* buff, struct sockaddr_in client_address, int client_length) {
+int CheckTimeout(int socketfd, char* buff, struct sockaddr_in client_address, int client_length) {
     fd_set fdread;
     int n;
     struct timeval tv;
 
     // Setup file descriptor set
     FD_ZERO(&fdread);
-    FD_SET(mainSocket, &fdread);
+    FD_SET(socketfd, &fdread);
 
     // Setup struct timeval for the timeout
     tv.tv_sec = TIME_OUT;
     tv.tv_usec = 0;
 
     // Wait until timeout or data received
-    n = select(mainSocket+1, &fdread, NULL, NULL, &tv);
+    n = select(socketfd+1, &fdread, NULL, NULL, &tv);
     if (n == 0) {
         std::cout << "[WARNING] Timeout while waiting data received." << std::endl;
         return -2; // Opcode -2 --> Timeout
@@ -97,7 +81,7 @@ int CheckTimeout(int mainSocket, char* buff, struct sockaddr_in client_address, 
         return -1; // Opcode -1 --> Error
     }
 
-    return recv(mainSocket, buff, MAX_BUFF_LENGTH-1, 0);
+    return recv(socketfd, buff, MAX_BUFF_LENGTH-1, 0);
 }
 
 int main() {
@@ -166,12 +150,11 @@ int main() {
                 std::cout << "REQUEST BUFFER: " << request_buffer << std::endl;
                 request_buffer.erase(0, 2);
 
-                // Open file TODO: Convert it to fstream
-                FILE* fp = std::fopen(request_buffer.c_str(), "rb");
+                std::ifstream file_pointer(request_buffer, std::ios::binary | std::ios::ate);
 
                 // File is not occurs or does not have valid access, send error message.
                 // TODO: Check for access in here as well.
-                if (fp == NULL) { // SENDING ERROR PACKET - FILE NOT FOUND
+                if (!file_pointer.is_open()) { // SENDING ERROR PACKET - FILE NOT FOUND
                     std::cout << "[ERROR] file not found on server side. filename: " << request_buffer << std::endl;
                     std::string e_msg = GenerateErrorMessage("02", "ERROR_FILE_NOT_FOUND");
                     std::cout << "[ERROR]: " << e_msg << std::endl;
@@ -186,14 +169,10 @@ int main() {
                 // Starting to send file
                 int block = 1; // Starting block for RRQ
                 
-                // Put pointer at the end of the file.
-                fseek(fp, 0, SEEK_END);
-                // Current file position is at the end, so we can calculate total size of it.
-                int total = ftell(fp);
-                // Put pointer at the beginnig of the file again.
-                fseek(fp, 0, SEEK_SET);
-                // Calculating remaining bytes.
-                int remaining = total;
+                // Thanks to use std::ios::ate, we can determine total file size. But need to clear and return to the beginning of the file.
+                int remaining = file_pointer.tellg();
+                file_pointer.clear();
+                file_pointer.seekg(0);
 
                 if (remaining == 0) {
                     remaining++;
@@ -201,23 +180,26 @@ int main() {
                     remaining--;
                 }
 
-                // TODO: Data packet is corrupted. Try with ifstream.
-                while (remaining > 0) {
+                int last_remaining = 0;
+
+                // ********** TODO: It reads '\0' but can't received further more from that byte in client???? **********
+                while (remaining > 0 && file_pointer.is_open()) {
                     // READING FILE
                     char temp[MAX_READ_LEN + 5]; // +5?
                     if (remaining > MAX_READ_LEN) {
                         // Read from file
-                        fread(temp, MAX_READ_LEN, sizeof(char), fp);
-                        temp[MAX_READ_LEN] = '\0';
+                        file_pointer.read(temp, MAX_READ_LEN);
+                        last_remaining = MAX_READ_LEN;
                         remaining -= MAX_READ_LEN;
                     } else {
-                        fread(temp, remaining, sizeof(char), fp);
-                        temp[remaining] = '\0';
+                        file_pointer.read(temp, remaining);
+                        last_remaining = remaining;
                         remaining = 0;
                     }
 
                     // SENDING DATA PACKET
-                    std::string data_packet = GenerateDataPacket(block, temp);
+                    std::string data(temp, last_remaining);
+                    std::string data_packet = GenerateDataPacket(block, data);
                     
                     if ((request_count = sendto(mainSocket, &data_packet[0], data_packet.size(), 0, (struct sockaddr*)&TFTPClient, client_length)) == -1) {
                         std::cout << "[ERROR] Error sending data packet. Errcode: " << WSAGetLastError() << std::endl;
@@ -235,29 +217,35 @@ int main() {
                             WSACleanup();
                             exit(EXIT_FAILURE);
                         }
+                        
+                        request_count = CheckTimeout(mainSocket, &request_buffer[0], TFTPClient, client_length);
 
-                        // TODO: request_count = CheckTimeout(mainSocket, request_buffer, client_address, client_length);
-                        request_count = 3;
                         if (request_count == -1) { // Error
                             std::cout << "[ERROR] Error occured while waiting ACK Packet from client." << std::endl;
                             WSACleanup();
                             exit(EXIT_FAILURE);
-                        } else if (request_count == -2) { // Timeout
-                            std::cout << "[ERROR] Timeout occured while waiting ACK Packet from client." << std::endl;
-                            // TODO: Do it again for trying times.
+                        } else if (request_count == -2) { // Timeout, try again.
+                            std::cout << "[ERROR] Try to send ACK Packet to Client again." << std::endl;
+                            int temp_bytes;
+                            if ((temp_bytes = sendto(mainSocket, &data_packet[0], data_packet.size(), 0, (struct sockaddr*) &TFTPClient, client_length) == -1)) {
+                                std::cout << "[ERROR] Error occured while trying to send Data Packet to client." << std::endl;
+                                WSACleanup();
+                                exit(EXIT_FAILURE);
+                            }
+
+                            std::cout << "[SERVER] Sent " << temp_bytes << " again." << std::endl;
                             continue;
                         } else {
                             break;
                         }
                     }
                     std::cout << "[SERVER] Got ACK Packet " << request_count << " bytes long." << std::endl;
-                    request_buffer[request_count] = '\0';
                     block++;
                     if (block > MAX_PACKETS)
                         block = 1;
                 }
 
-                fclose(fp);
+                file_pointer.close();
             } else if (request_buffer[0] == '0' && request_buffer[1] == '2') { // OPCODE: 01 --> WRQ
                 /*
                 // Sent ACK Packet

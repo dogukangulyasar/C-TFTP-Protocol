@@ -5,9 +5,9 @@
 
 #define PORT 69
 
-#define MAX_BUFFER_LENGTH 512
+#define MAX_BUFFER_LENGTH 516
 #define MAX_FILENAME_LENGTH 100
-#define MAX_READ_LEN 512
+#define MAX_READ_LEN 516
 
 std::string GenerateACK(char* block) {
     std::string packet = "04" + std::string(block);
@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
 
     int retVal = 0;
     struct sockaddr_in TFTPServerSocket;
-    char request_buffer[MAX_BUFFER_LENGTH];
+    
 
     int request_count = 0;
 
@@ -79,7 +79,7 @@ int main(int argc, char* argv[]) {
         // Decide what is the operation
         if ((strcmp(argv[1], "GET") == 0) || (strcmp(argv[1], "get") == 0)) { // RRQ
             // Sending RRQ
-            std::string fileOpenFromServer = "C:\\socket_programming\\tftp_application\\TFTPServer\\x64\\Debug\\" + file + '\0';
+            std::string fileOpenFromServer = "C:/socket_programming/tftp_application/TFTPServer/x64/Debug/" + file + '\0';
             std::string message = GenereateRRQ(fileOpenFromServer.c_str());
             std::cout << "Message: " << message << std::endl;
             std::string last_recv_message(message);
@@ -100,15 +100,15 @@ int main(int argc, char* argv[]) {
             }
 
             // Receiving actual file
-            int c_written;
             do {
-                if ((request_count = recvfrom(clientSocket, request_buffer, MAX_BUFFER_LENGTH - 1, 0, (struct sockaddr*)&TFTPServerSocket, &server_length)) == -1) {
+                std::string request_buffer;
+                request_buffer.resize(MAX_BUFFER_LENGTH);
+                if ((request_count = recvfrom(clientSocket, &request_buffer[0], MAX_BUFFER_LENGTH, 0, (struct sockaddr*)&TFTPServerSocket, &server_length)) == -1) {
                     std::cout << "[ERROR] Failed to receiving file data. Error: " << WSAGetLastError() << std::endl;
                     WSACleanup();
                     exit(EXIT_FAILURE);
                 }
                 std::cout << "[CLIENT] Got packet " << request_count << " bytes long." << std::endl;
-                request_buffer[request_count] = '\0';
 
                 // Checking if error packet
                 if (request_buffer[0] == '0' && request_buffer[1] == '5') {
@@ -122,18 +122,20 @@ int main(int argc, char* argv[]) {
                     sendto(clientSocket, &last_sent_ack[0], last_sent_ack.size(), 0, (struct sockaddr*)&TFTPServerSocket, server_length);
                     continue;
                 }
+                // Prepare ACK
+                char block[3];
+                strncpy(block, request_buffer.c_str() + 2, 2);
+                block[2] = '\0';
 
                 // Writing file
-                c_written = strlen(request_buffer + 4);
-                fwrite(request_buffer+4, sizeof(char), c_written, fp);
+                request_buffer.erase(0, 4);
+                fwrite(request_buffer.c_str(), sizeof(char), request_count - 4, fp);
                 last_recv_message = request_buffer;
 
                 // Sending ACK
-                char block[3];
-                strncpy(block, request_buffer+2, 2);
-                block[2] = '\0';
+                int send_count;
                 std::string ack_message = GenerateACK(block);
-                if ((request_count = sendto(clientSocket, &ack_message[0], ack_message.size(), 0, (struct sockaddr*)&TFTPServerSocket, server_length)) == -1) {
+                if ((send_count = sendto(clientSocket, &ack_message[0], ack_message.size(), 0, (struct sockaddr*)&TFTPServerSocket, server_length)) == -1) {
                     std::cout << "[ERROR] Failed to sent ACK packet." << std::endl;
                     WSACleanup();
                     exit(EXIT_FAILURE);
@@ -141,7 +143,7 @@ int main(int argc, char* argv[]) {
 
                 std::cout << "[CLIENT] Sent ACK message " << ack_message << " bytes long" << std::endl;
                 last_sent_ack = ack_message;
-            } while (c_written == MAX_READ_LEN);
+            } while (request_count == MAX_READ_LEN);
             std::cout << "[CLIENT] New file " << filename << " successfully created." << std::endl;
             fclose(fp);
         } else if((strcmp(argv[1], "PUT") == 0) || (strcmp(argv[1], "put") == 0)) { // WRQ
