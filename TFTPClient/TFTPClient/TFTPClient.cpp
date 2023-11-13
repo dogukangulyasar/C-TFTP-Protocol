@@ -2,6 +2,7 @@
 #include <winsock.h>
 #include <iostream>
 #include <string>
+#include <fstream>
 
 #define PORT 69
 
@@ -92,8 +93,10 @@ int main(int argc, char* argv[]) {
             std::cout << "[CLIENT] RRQ message sent " << request_count << " bytes long." << std::endl;
             std::string filename(file);
 
-            FILE* fp = fopen(filename.c_str(), "wb");
-            if (fp == NULL) {
+            //FILE* fp = fopen(filename.c_str(), "wb");
+            std::ofstream file_pointer(filename, std::ios::binary);
+
+            if (!file_pointer.is_open()) {
                 std::cout << "[ERROR] Failed to open file." << std::endl;
                 WSACleanup();
                 exit(EXIT_FAILURE);
@@ -129,7 +132,8 @@ int main(int argc, char* argv[]) {
 
                 // Writing file
                 request_buffer.erase(0, 4);
-                fwrite(request_buffer.c_str(), sizeof(char), request_count - 4, fp);
+                file_pointer.write(request_buffer.c_str(), request_count - 4); // 4 --> opcode(2bytes) + block(2bytes) size.
+                //fwrite(request_buffer.c_str(), sizeof(char), request_count - 4, fp);
                 last_recv_message = request_buffer;
 
                 // Sending ACK
@@ -145,7 +149,7 @@ int main(int argc, char* argv[]) {
                 last_sent_ack = ack_message;
             } while (request_count == MAX_READ_LEN);
             std::cout << "[CLIENT] New file " << filename << " successfully created." << std::endl;
-            fclose(fp);
+            file_pointer.close();
         } else if((strcmp(argv[1], "PUT") == 0) || (strcmp(argv[1], "put") == 0)) { // WRQ
             // TODO: IMPLEMENT IT
         } else {
