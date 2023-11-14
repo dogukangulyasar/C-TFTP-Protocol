@@ -10,7 +10,7 @@
 // TFTP Port: 69
 #define PORT 69
 
-#define MAX_BUFF_LENGTH 512
+#define MAX_BUFFER_LENGTH 516
 #define MAX_FILENAME_LEN 100
 #define MAX_READ_LEN 512
 #define MAX_TRIES 3
@@ -20,11 +20,6 @@
 
 std::string GenerateAcknowledgePacket(const char* block) {
     std::string packet = "04" + std::string(block);
-    //char* packet;
-    //packet = (char*)malloc(2+strlen(block));
-	//memset(packet, 0, sizeof packet);
-	//strcat(packet, "04");//opcode
-	//strcat(packet, block);
     return packet;
 }
 
@@ -32,29 +27,16 @@ std::string GenerateDataPacket(int block, std::string data) {
     std::string packet;
     if (block <= 9) {
         packet = "030" + std::to_string(block) + data;
-    } else {
+    }
+    else {
         packet = "03" + std::to_string(block) + data;
     }
-    //char *packet;
-	//char temp[3];
-	//s_to_i(temp, block);
-	//packet = (char*)malloc(4+strlen(data));
-	//memset(packet, 0, sizeof packet);
-	//strcat(packet, "03");//opcode
-	//strcat(packet, temp);
-	//strcat(packet, data);
 
     return packet;
 }
 
 std::string GenerateErrorMessage(const char* errcode, const char* errmsg) {
     std::string packet = "05" + std::string(errcode) + std::string(errmsg);
-    //char* packet;
-    //packet = (char*)malloc(4+strlen(errmsg)); // packet = ?
-    //memset(packet, 0, sizeof(packet));
-    //std::strcat(packet, "05"); // Setting opcode
-    //strcat(packet, errcode); // Setting error code
-    //strcat(packet, errmsg); // Setting error mesage
     return packet;
 }
 
@@ -72,35 +54,31 @@ int CheckTimeout(int socketfd, char* buff, struct sockaddr_in client_address, in
     tv.tv_usec = 0;
 
     // Wait until timeout or data received
-    n = select(socketfd+1, &fdread, NULL, NULL, &tv);
+    n = select(socketfd + 1, &fdread, NULL, NULL, &tv);
     if (n == 0) {
         std::cout << "[WARNING] Timeout while waiting data received." << std::endl;
         return -2; // Opcode -2 --> Timeout
-    } else if(n == -1) {
+    }
+    else if (n == -1) {
         std::cout << "[ERROR] error";
         return -1; // Opcode -1 --> Error
     }
 
-    return recv(socketfd, buff, MAX_BUFF_LENGTH-1, 0);
+    return recv(socketfd, buff, MAX_BUFFER_LENGTH - 1, 0);
 }
 
 int main() {
     std::cout << "Hello TFTP(UDP) server!\n";
     int retVal = 0;
-
-    // Buffer to hold request message
-    std::string request_buffer;
-    request_buffer.resize(MAX_BUFF_LENGTH);
-    //char request_buffer[MAX_BUFF_LENGTH];
-
     // Initialize the WSA variables. Supporting socket programiing in windows environment.
     WSAData ws;
 
-    if (WSAStartup(MAKEWORD(2,2), &ws) < 0) {
+    if (WSAStartup(MAKEWORD(2, 2), &ws) < 0) {
         std::cout << "[ERROR] Can not initalize WSA variables." << std::endl;
         WSACleanup();
         exit(EXIT_FAILURE);
-    } else {
+    }
+    else {
         std::cout << "[SUCCESS] WSA variables successfully initalized." << std::endl;
     }
 
@@ -119,7 +97,8 @@ int main() {
         std::cout << "[ERROR] Socket can not opened." << std::endl;
         WSACleanup();
         exit(EXIT_FAILURE);
-    } else {
+    }
+    else {
         std::cout << "[SUCCESS] Socket successfully opened." << std::endl;
     }
 
@@ -128,7 +107,8 @@ int main() {
         std::cout << "[ERROR] Socket bind failed." << std::endl;
         WSACleanup();
         exit(EXIT_FAILURE);
-    } else {
+    }
+    else {
         std::cout << "[SUCCESS] Successfully bind socket." << std::endl;
     }
 
@@ -137,9 +117,12 @@ int main() {
     // Holds request count
     int request_count = -1;
     while (1) {
+        // Buffer to hold request message
+        std::string request_buffer;
+        request_buffer.resize(MAX_BUFFER_LENGTH);
         int client_length = sizeof(TFTPClient);
         // Call recvfrom() to get a request datagram from the client.
-        request_count = recvfrom(mainSocket, &request_buffer[0], MAX_BUFF_LENGTH + 1, 0, (struct sockaddr*)&TFTPClient, &client_length);
+        request_count = recvfrom(mainSocket, &request_buffer[0], MAX_BUFFER_LENGTH, 0, (struct sockaddr*)&TFTPClient, &client_length);
 
         if (request_count == -1) {
             std::cout << "[ERROR] Error while receiving client request." << std::endl;
@@ -158,17 +141,17 @@ int main() {
                     std::cout << "[ERROR] file not found on server side. filename: " << request_buffer << std::endl;
                     std::string e_msg = GenerateErrorMessage("02", "ERROR_FILE_NOT_FOUND");
                     std::cout << "[ERROR]: " << e_msg << std::endl;
-                    
+
                     // Send to client
                     sendto(mainSocket, &e_msg[0], e_msg.size(), 0, (struct sockaddr*)&TFTPClient, client_length);
-                    
+
                     WSACleanup();
                     exit(EXIT_FAILURE);
                 }
 
                 // Starting to send file
                 int block = 1; // Starting block for RRQ
-                
+
                 // Thanks to use std::ios::ate, we can determine total file size. But need to clear and return to the beginning of the file.
                 int remaining = file_pointer.tellg();
                 file_pointer.clear();
@@ -176,7 +159,8 @@ int main() {
 
                 if (remaining == 0) {
                     remaining++;
-                } else if(remaining % MAX_READ_LEN == 0) {
+                }
+                else if (remaining % MAX_READ_LEN == 0) {
                     remaining--;
                 }
 
@@ -200,7 +184,7 @@ int main() {
                     // SENDING DATA PACKET
                     std::string data(temp, last_remaining);
                     std::string data_packet = GenerateDataPacket(block, data);
-                    
+
                     if ((request_count = sendto(mainSocket, &data_packet[0], data_packet.size(), 0, (struct sockaddr*)&TFTPClient, client_length)) == -1) {
                         std::cout << "[ERROR] Error sending data packet. Errcode: " << WSAGetLastError() << std::endl;
                         WSACleanup();
@@ -211,23 +195,24 @@ int main() {
 
                     // WAITING FOR ACK MESSAGE
                     int time;
-                    for ( time = 0; time <= MAX_TRIES; time++) {
+                    for (time = 0; time <= MAX_TRIES; time++) {
                         if (time == MAX_TRIES) {
                             std::cout << "[ERROR] Maximum number of tries reached while waiting ACK message from client." << std::endl;
                             WSACleanup();
                             exit(EXIT_FAILURE);
                         }
-                        
+
                         request_count = CheckTimeout(mainSocket, &request_buffer[0], TFTPClient, client_length);
 
                         if (request_count == -1) { // Error
                             std::cout << "[ERROR] Error occured while waiting ACK Packet from client." << std::endl;
                             WSACleanup();
                             exit(EXIT_FAILURE);
-                        } else if (request_count == -2) { // Timeout, try again.
+                        }
+                        else if (request_count == -2) { // Timeout, try again.
                             std::cout << "[ERROR] Try to send ACK Packet to Client again." << std::endl;
                             int temp_bytes;
-                            if ((temp_bytes = sendto(mainSocket, &data_packet[0], data_packet.size(), 0, (struct sockaddr*) &TFTPClient, client_length) == -1)) {
+                            if ((temp_bytes = sendto(mainSocket, &data_packet[0], data_packet.size(), 0, (struct sockaddr*)&TFTPClient, client_length) == -1)) {
                                 std::cout << "[ERROR] Error occured while trying to send Data Packet to client." << std::endl;
                                 WSACleanup();
                                 exit(EXIT_FAILURE);
@@ -235,7 +220,8 @@ int main() {
 
                             std::cout << "[SERVER] Sent " << temp_bytes << " again." << std::endl;
                             continue;
-                        } else {
+                        }
+                        else {
                             break;
                         }
                     }
@@ -246,16 +232,15 @@ int main() {
                 }
 
                 file_pointer.close();
-            } else if (request_buffer[0] == '0' && request_buffer[1] == '2') { // OPCODE: 01 --> WRQ
-                /*
-                // Sent ACK Packet
-                char* message = GenerateAcknowledgePacket("00");
-                char lastrecvmessage[MAX_BUFF_LENGTH];
-                strcpy(lastrecvmessage, request_buffer);
-                char lastsentack[10];
-                strcpy(lastsentack, message);
-                
-                if ((request_count = sendto(mainSocket, message, strlen(message), 0, (struct sockaddr*)&TFTPClient, client_length)) == -1) {
+            } else if (request_buffer[0] == '0' && request_buffer[1] == '2') { // OPCODE: 02 --> WRQ
+                std::cout << "[SERVER] Got WRQ Request." << std::endl;
+                // Sending ACK Packet
+                std::string message = GenerateAcknowledgePacket("00");
+                std::string last_message(request_buffer);
+
+                std::string last_sent_ack(message);
+
+                if ((request_count = sendto(mainSocket, &message[0], message.size(), 0, (struct sockaddr*)&TFTPClient, client_length)) == -1) {
                     std::cout << "[ERROR] Error in sending ACK packet." << std::endl;
                     WSACleanup();
                     exit(EXIT_FAILURE);
@@ -264,63 +249,57 @@ int main() {
                 std::cout << "[SERVER] ACK packet sent." << std::endl;
 
                 // Setting file name
-                char filename[MAX_FILENAME_LEN];
-                strcpy(filename, request_buffer + 2);
-                strcat(filename, "_server");
-
-                // TODO: Check for access & duplicate.
-
-                FILE* fp = fopen(filename, "wb");
-                // TODO: Check for access as well.
-                if (fp == NULL) {
+                // Remove opcode from request_buffer
+                std::string filename = request_buffer.substr(2, request_buffer.size());
+                std::ofstream file_pointer(filename, std::ios::binary);
+                
+                if (file_pointer.is_open() == NULL) {
                     std::cout << "[ERROR] File " << filename << " access denied. Sending error packet" << std::endl;
-                    char* errormessage = GenerateErrorMessage("05", "ERROR_ACCESS_DENIED");
-                    sendto(mainSocket, errormessage, strlen(errormessage), 0, (struct sockaddr*) &TFTPClient, client_length);
+                    std::string error_message = GenerateErrorMessage("05", "ERROR_ACCESS_DENIED");
+                    sendto(mainSocket, &error_message[0], error_message.size(), 0, (struct sockaddr*)&TFTPClient, client_length);
                     WSACleanup();
                     exit(EXIT_FAILURE);
                 }
 
-                int c_written;
                 do {
                     // Receiving file - Packet Data
-                    if ((request_count = recvfrom(mainSocket, request_buffer, MAX_BUFF_LENGTH - 1, 0, (struct sockaddr*)&TFTPClient, &client_length)) == -1) {
+                    if ((request_count = recvfrom(mainSocket, &request_buffer[0], MAX_BUFFER_LENGTH, 0, (struct sockaddr*)&TFTPClient, &client_length)) == -1) {
                         std::cout << "[ERROR] Could not receive data from client for write operation." << std::endl;
                         WSACleanup();
                         exit(EXIT_FAILURE);
                     }
-
                     std::cout << "[SERVER] Got packet " << request_count << " bytes long." << std::endl;
-                    request_buffer[request_count] = '\0';
-                    std::cout << "[SERVER] Packet contains " << request_buffer << std::endl;
 
                     //SENDING LAST ACK AGAIN - AS IT HAS NOT REACHED
-                    if (strcmp(request_buffer, lastrecvmessage) == 0) {
-                        sendto(mainSocket, lastsentack, strlen(lastsentack), 0, (struct sockaddr*)&TFTPClient, client_length);
+                    if (request_buffer == last_message) {
+                        sendto(mainSocket, &last_sent_ack[0], last_sent_ack.size(), 0, (struct sockaddr*)&TFTPClient, client_length);
                         continue;
                     }
 
+                    // Preparing block information
+                    char block[3];
+                    strncpy(block, request_buffer.c_str() + 2, 2);
+                    block[2] = '\0';
+
                     // Writing file
-                    c_written = strlen(request_buffer + 4);
-                    fwrite(request_buffer + 4, sizeof(char), c_written, fp);
-                    strcpy(lastrecvmessage, request_buffer);
+                    last_message = request_buffer;
+                    std::string write_buffer = request_buffer.substr(4, request_buffer.size()); // Eliminate opcode + block info
+                    file_pointer.write(write_buffer.c_str(), request_count - 4);
 
                     // Sending ACK packet
-                    char block[3];
-                    strncpy(block, request_buffer+2, 2);
-                    block[2] = '\0';
-                    char* ack_packet = GenerateAcknowledgePacket(block);
-                    if ((request_count = sendto(mainSocket, ack_packet, strlen(ack_packet), 0, (struct sockaddr*)&TFTPClient, client_length)) == -1) {
+                    std::string ack_packet = GenerateAcknowledgePacket(block);
+                    int ack_count;
+                    if ((ack_count = sendto(mainSocket, &ack_packet[0], ack_packet.size(), 0, (struct sockaddr*)&TFTPClient, client_length)) == -1) {
                         std::cout << "[ERROR] Could not snet ACK packet." << std::endl;
                         WSACleanup();
                         exit(EXIT_FAILURE);
                     }
 
                     std::cout << "[SERVER] ACK packet sent: " << request_count << " bytes long" << std::endl;
-                    strcpy(lastsentack, ack_packet);
-                } while (c_written == MAX_READ_LEN);
+                    last_sent_ack = ack_packet;
+                } while (request_count == MAX_BUFFER_LENGTH);
                 std::cout << "[SERVER] New file " << filename << " successfully created." << std::endl;
-                fclose(fp);
-                */
+                file_pointer.close();
             } else { // INVALID REQUEST
                 std::cout << "[ERROR] Invalid request received from client" << std::endl;
                 WSACleanup();
